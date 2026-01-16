@@ -1,0 +1,495 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+    <title>V86 Emulator</title>
+   
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+   
+    <style>
+        :root {
+            --bg: #f5f7fa;
+            --surface: #ffffff;
+            --primary: #3b82f6;
+            --primary-dark: #2563eb;
+            --text: #111827;
+            --text-secondary: #4b5563;
+            --border: #d1d5db;
+            --shadow: 0 4px 20px rgba(0,0,0,0.08);
+        }
+        * { box-sizing: border-box; }
+        body {
+            margin: 0;
+            padding: 16px;
+            background: var(--bg);
+            font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            color: var(--text);
+            min-height: 100vh;
+        }
+        .container {
+            max-width: 1280px;
+            margin: 0 auto;
+            background: var(--surface);
+            border-radius: 16px;
+            box-shadow: var(--shadow);
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+        }
+        .header {
+            background: linear-gradient(to right, #1e40af, #3b82f6);
+            color: white;
+            padding: 2.5rem 2rem;
+            text-align: center;
+        }
+        .header h1 { margin:0; font-size:2.25rem; font-weight:600; }
+        .header p { margin:0.5rem 0 0; opacity:0.9; font-size:1.1rem; }
+        .main-content {
+            padding: 2rem;
+            display: flex;
+            flex-direction: column;
+            gap: 2rem;
+            flex: 1;
+        }
+        .inputs-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+            gap: 1.5rem;
+        }
+        .input-card {
+            background: white;
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 1.5rem;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.04);
+            transition: all 0.2s;
+        }
+        .input-card:hover {
+            border-color: var(--primary);
+            box-shadow: 0 4px 16px rgba(59,130,246,0.15);
+        }
+        .input-card label {
+            display: block;
+            font-weight: 600;
+            margin-bottom: 0.75rem;
+            color: var(--text);
+        }
+        .filename {
+            margin-top: 0.75rem;
+            font-size: 0.875rem;
+            color: var(--text-secondary);
+            word-break: break-all;
+        }
+        .filename strong { color: var(--text); }
+        .settings-row {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 1.5rem;
+            justify-content: center;
+            align-items: center;
+        }
+        .settings-row select {
+            padding: 0.75rem 1rem;
+            font-size: 1rem;
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            min-width: 220px;
+        }
+        .control-bar {
+            display: flex;
+            flex-wrap: wrap;
+            justify-content: center;
+            gap: 1rem;
+            margin: 1.5rem 0;
+        }
+        button {
+            padding: 0.75rem 1.75rem;
+            font-size: 1rem;
+            font-weight: 600;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        .btn-primary { background: var(--primary); color: white; }
+        .btn-primary:hover { background: var(--primary-dark); transform: translateY(-1px); }
+        .btn-success { background: #10b981; color: white; }
+        .btn-warning { background: #f59e0b; color: white; }
+        .btn-danger { background: #ef4444; color: white; }
+        button:disabled { opacity: 0.55; cursor: not-allowed; transform: none; }
+        #screen_container {
+            flex: 1;
+            background: #000;
+            border-radius: 12px;
+            overflow: hidden;
+            min-height: 500px;
+            box-shadow: inset 0 2px 10px rgba(0,0,0,0.6);
+            transition: all 0.3s;
+            position: relative;
+        }
+        #screen_container.focused {
+            outline: 3px solid #10b981;
+            outline-offset: -3px;
+            box-shadow: 0 0 0 5px rgba(16,185,129,0.35);
+        }
+        #screen_container > div {
+            width: 100%;
+            height: 100%;
+            white-space: pre;
+            font: 16px/16px "Courier New", Consolas, monospace;
+            line-height: 16px !important;
+            padding: 1.5rem;
+            color: #e5e7eb;
+            background: #000;
+            box-sizing: border-box;
+        }
+        #screen_container canvas {
+            width: 100% !important;
+            height: 100% !important;
+            max-width: 100%;
+            max-height: 100%;
+            object-fit: fill;
+            image-rendering: pixelated;
+            position: absolute;
+            top: 0;
+            left: 0;
+        }
+        .status-bar {
+            padding: 1rem 2rem;
+            background: #f3f4f6;
+            border-top: 1px solid var(--border);
+            color: var(--text-secondary);
+            font-size: 0.95rem;
+        }
+        @media (max-width: 900px) {
+            .main-content { padding: 1.5rem; }
+            #screen_container { min-height: 400px; }
+        }
+    </style>
+</head>
+<body>
+<div class="container">
+    <div class="header">
+        <h1>V86 Emulator</h1>
+        <p>Run classic operating systems in your browser</p>
+    </div>
+    <div class="main-content">
+        <div class="inputs-grid">
+            <div class="input-card">
+                <label>Floppy Disk (A:)</label>
+                <input type="file" id="fda" accept=".img" hidden>
+                <button class="btn-primary" onclick="document.getElementById('fda').click()">
+                    Select Floppy
+                </button>
+                <div class="filename" id="fda-name"></div>
+            </div>
+            <div class="input-card">
+                <label>Hard Disk Image</label>
+                <input type="file" id="hda" accept=".img,.zip" hidden>
+                <button class="btn-primary" onclick="document.getElementById('hda').click()">
+                    Select HDD (.img/.zip)
+                </button>
+                <div class="filename" id="hda-name"></div>
+            </div>
+            <div class="input-card">
+                <label>CD/DVD Image</label>
+                <input type="file" id="cdrom" accept=".iso" hidden>
+                <button class="btn-primary" onclick="document.getElementById('cdrom').click()">
+                    Select ISO
+                </button>
+                <div class="filename" id="cdrom-name"></div>
+            </div>
+        </div>
+        <div class="settings-row">
+            <div>
+                <label for="ram"><strong>RAM Size</strong></label>
+                <select id="ram">
+                    <option value="2">2 MB (minimal)</option>
+                    <option value="4">4 MB</option>
+                    <option value="8">8 MB</option>
+                    <option value="16">16 MB</option>
+                    <option value="32">32 MB</option>
+                    <option value="64">64 MB</option>
+                    <option value="128">128 MB</option>
+                    <option value="256">256 MB</option>
+                    <option value="512" selected>512 MB (recommended)</option>
+                    <option value="1024">1 GB</option>
+                    <option value="2048">2 GB</option>
+                </select>
+            </div>
+            <div>
+                <label for="boot"><strong>Boot Order</strong></label>
+                <select id="boot">
+                    <option value="fda-first">Floppy → HDD → CD</option>
+                    <option value="hda-first">HDD → CD</option>
+                    <option value="cdrom-first">CD → HDD</option>
+                    <option value="fda-only">Floppy only</option>
+                    <option value="hda-only">HDD only</option>
+                    <option value="cdrom-only">CD only</option>
+                </select>
+            </div>
+        </div>
+        <div class="control-bar">
+            <button id="start" class="btn-primary" disabled>Start Emulator</button>
+            <button id="save-state" class="btn-warning" disabled>Save State</button>
+            <button id="load-state" class="btn-success">Load State</button>
+            <button id="reset" class="btn-danger">Reset</button>
+            <button id="capture-input" class="btn-success" disabled>Capture Input</button>
+            <button id="toggle-fullscreen" class="btn-primary">Fullscreen</button>
+        </div>
+        <div id="screen_container" tabindex="0">
+            <div>
+V86 Emulator — Ready
+Select disk images • Choose RAM & boot order • Click Start
+(Click screen multiple times after capture if keys don't respond)
+            </div>
+            <canvas style="display:none"></canvas>
+        </div>
+    </div>
+    <div class="status-bar">
+        <span id="status">Ready — select at least one bootable image</span>
+    </div>
+</div>
+
+<script src="js/libv86.js"></script>
+<script>
+// ──────────────────────────────────────────────────────────────────────────────
+let emulator = null;
+let fdaFile = null, hdaFile = null, cdromFile = null, hdaZipBuffer = null;
+
+const el = id => document.getElementById(id);
+const status = msg => el("status").textContent = msg;
+
+const fmtSize = bytes => {
+    if (bytes < 1<<20) return (bytes/1024).toFixed(1)+" KB";
+    if (bytes < 1<<30) return (bytes/(1<<20)).toFixed(1)+" MB";
+    return (bytes/(1<<30)).toFixed(2)+" GB";
+};
+
+function updateUI() {
+    const boot = el("boot").value;
+    const can = (boot.includes("fda") && fdaFile) ||
+                (boot.includes("hda") && hdaFile) ||
+                (boot.includes("cdrom") && cdromFile);
+    
+    el("start").disabled = !can;
+    el("start").textContent = emulator ? "Stop" : "Start";
+    el("save-state").disabled = !emulator;
+    el("capture-input").disabled = !emulator;
+
+    el("fda-name").textContent = fdaFile ? `${fdaFile.name} (${fmtSize(fdaFile.size)})` : "";
+    el("hda-name").textContent = hdaFile ? `${hdaFile.name} (${fmtSize(hdaFile.size)})` : "";
+    el("cdrom-name").textContent = cdromFile ? `${cdromFile.name} (${fmtSize(cdromFile.size)})` : "";
+}
+
+// File handlers
+el("fda").onchange = e => { fdaFile = e.target.files[0]; updateUI(); };
+el("cdrom").onchange = e => { cdromFile = e.target.files[0]; updateUI(); };
+el("hda").onchange = async e => {
+    hdaFile = e.target.files[0];
+    hdaZipBuffer = null;
+    if (!hdaFile) return updateUI();
+    if (/\.zip$/i.test(hdaFile.name)) {
+        status("Extracting ZIP...");
+        try {
+            const zip = await JSZip.loadAsync(hdaFile);
+            let img = null;
+            zip.forEach((_,f) => { if (!f.dir && /\.img$/i.test(f.name)) img = f; });
+            if (img) {
+                hdaZipBuffer = await img.async("arraybuffer");
+                status("ZIP ready");
+            } else {
+                hdaFile = null;
+                status("No .img in ZIP");
+            }
+        } catch(e) {
+            hdaFile = null;
+            status("ZIP error");
+        }
+    }
+    updateUI();
+};
+
+el("boot").onchange = updateUI;
+el("ram").onchange = updateUI;
+
+// Capture input
+el("capture-input").onclick = () => {
+    if (!emulator) return;
+    const container = el("screen_container");
+    const canvas = container.querySelector("canvas") || container;
+
+    try {
+        if (canvas.requestPointerLock && document.pointerLockElement !== canvas) {
+            canvas.requestPointerLock();
+        }
+        canvas.focus({ preventScroll: true });
+        container.classList.add("focused");
+        status("Input captured! Click screen few more times if keys don't work");
+    } catch (e) {
+        status("Click inside the screen multiple times to capture");
+    }
+};
+
+document.addEventListener("pointerlockchange", () => {
+    if (!document.pointerLockElement) {
+        el("screen_container").classList.remove("focused");
+        status("Input released");
+    }
+});
+
+// Fullscreen + resize
+function resizeCanvasToFill() {
+    const canvas = el("screen_container")?.querySelector("canvas");
+    if (!canvas) return;
+    canvas.style.width = "100%";
+    canvas.style.height = "100%";
+    canvas.style.maxWidth = "100%";
+    canvas.style.maxHeight = "100%";
+}
+
+el("toggle-fullscreen").onclick = () => {
+    const container = el("screen_container");
+    
+    if (!document.fullscreenElement) {
+        if (container.requestFullscreen) {
+            container.requestFullscreen().then(() => {
+                resizeCanvasToFill();
+                status("Fullscreen enabled (ESC to exit)");
+            });
+        } else if (container.webkitRequestFullscreen) {
+            container.webkitRequestFullscreen();
+            resizeCanvasToFill();
+        }
+        el("toggle-fullscreen").textContent = "Exit Fullscreen";
+    } else {
+        if (document.exitFullscreen) {
+            document.exitFullscreen();
+        } else if (document.webkitExitFullscreen) {
+            document.webkitExitFullscreen();
+        }
+        el("toggle-fullscreen").textContent = "Fullscreen";
+        resizeCanvasToFill();
+        status("Fullscreen exited");
+    }
+};
+
+document.addEventListener("fullscreenchange", () => {
+    if (!document.fullscreenElement) {
+        el("toggle-fullscreen").textContent = "Fullscreen";
+        resizeCanvasToFill();
+        status("Fullscreen exited");
+    }
+});
+
+window.addEventListener("resize", resizeCanvasToFill);
+
+// Start emulator
+el("start").onclick = async () => {
+    if (emulator) {
+        emulator.destroy();
+        emulator = null;
+        el("screen_container").classList.remove("focused");
+        status("Stopped");
+        updateUI();
+        return;
+    }
+
+    const ramMB = parseInt(el("ram").value);
+    if (ramMB < 16) {
+        status(`Warning: ${ramMB} MB is very low — only suitable for tiny DOS/FreeDOS images`);
+    } else {
+        status(`Starting... ${ramMB} MB RAM`);
+    }
+
+    const config = {
+        wasm_path: "build/v86.wasm",
+        memory_size: ramMB * 1024 * 1024,
+        vga_memory_size: 32 * 1024 * 1024,
+        screen_container: el("screen_container"),
+        bios: { url: "build/seabios.bin" },
+        vga_bios: { url: "build/vgabios.bin" },
+        autostart: true,
+    };
+
+    const LARGE = 512 * 1024 * 1024;
+    const boot = el("boot").value;
+
+    if (fdaFile && (boot.includes("fda") || boot === "fda-only")) {
+        config.fda = fdaFile.size > LARGE
+            ? { url: URL.createObjectURL(fdaFile), async: true, size: fdaFile.size }
+            : { buffer: await fdaFile.arrayBuffer() };
+    }
+    if (hdaFile && boot.includes("hda")) {
+        config.hda = hdaZipBuffer
+            ? { buffer: hdaZipBuffer }
+            : hdaFile.size > LARGE
+                ? { url: URL.createObjectURL(hdaFile), async: true, size: hdaFile.size }
+                : { buffer: await hdaFile.arrayBuffer() };
+    }
+    if (cdromFile && boot.includes("cdrom")) {
+        config.cdrom = cdromFile.size > LARGE
+            ? { url: URL.createObjectURL(cdromFile), async: true, size: cdromFile.size }
+            : { buffer: await cdromFile.arrayBuffer() };
+    }
+
+    config.boot_order =
+        boot === "fda-first" ? 0x321 :
+        boot === "hda-first" ? 0x213 :
+        boot === "cdrom-first" ? 0x123 :
+        boot === "fda-only" ? 0x100 :
+        boot === "hda-only" ? 0x200 : 0x100;
+
+    try {
+        emulator = new V86(config);
+        status(`Running — ${ramMB} MB RAM • Capture input if needed`);
+        updateUI();
+        setTimeout(resizeCanvasToFill, 800);
+    } catch(e) {
+        status("Start failed: " + e.message);
+        console.error(e);
+    }
+};
+
+// State handling
+el("save-state").onclick = async () => {
+    if (!emulator) return;
+    try {
+        status("Saving...");
+        const state = await emulator.save_state();
+        const blob = new Blob([state]);
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url; a.download = "v86-state.bin"; a.click();
+        URL.revokeObjectURL(url);
+        status("State saved");
+    } catch(e) { status("Save failed"); }
+};
+
+el("load-state").onclick = () => {
+    const i = document.createElement("input");
+    i.type = "file"; i.accept = ".bin";
+    i.onchange = async e => {
+        const f = e.target.files[0];
+        if (!f) return;
+        try {
+            status("Loading state...");
+            const buf = await f.arrayBuffer();
+            if (emulator) {
+                await emulator.restore_state(buf);
+                status("State loaded");
+                setTimeout(resizeCanvasToFill, 300);
+            } else alert("Start emulator first");
+        } catch(e) { status("Load failed"); }
+    };
+    i.click();
+};
+
+el("reset").onclick = () => location.reload();
+
+// Init
+updateUI();
+</script>
+</body>
+</html>
