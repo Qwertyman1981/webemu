@@ -190,15 +190,7 @@
                 <div class="filename" id="cdrom-name"></div>
             </div>
         </div>
-
         <div class="settings-row">
-            <div>
-                <label for="profile"><strong>Quick Profile</strong></label>
-                <select id="profile">
-                    <option value="custom">Custom (manual selection)</option>
-                    <option value="win31">Windows 3.1</option>
-                </select>
-            </div>
             <div>
                 <label for="ram"><strong>RAM Size</strong></label>
                 <select id="ram">
@@ -227,7 +219,6 @@
                 </select>
             </div>
         </div>
-
         <div class="control-bar">
             <button id="start" class="btn-primary" disabled>Start Emulator</button>
             <button id="save-state" class="btn-warning" disabled>Save State</button>
@@ -236,12 +227,11 @@
             <button id="capture-input" class="btn-success" disabled>Capture Input</button>
             <button id="toggle-fullscreen" class="btn-primary">Fullscreen</button>
         </div>
-
         <div id="screen_container" tabindex="0">
             <div>
 V86 Emulator — Ready
 Select disk images • Choose RAM & boot order • Click Start
-(Click screen multiple times after capture if keys don't respond)
+(Click screen or press Left Ctrl to capture input)
             </div>
             <canvas style="display:none"></canvas>
         </div>
@@ -267,22 +257,12 @@ const fmtSize = bytes => {
 };
 
 function updateUI() {
-    const profile = el("profile").value;
     const boot = el("boot").value;
+    const can = (boot.includes("fda") && fdaFile) ||
+                (boot.includes("hda") && hdaFile) ||
+                (boot.includes("cdrom") && cdromFile);
     
-    let canStart = false;
-    
-    if (profile === "win31") {
-        canStart = true;
-        el("boot").value = "hda-only";
-        el("ram").value = "32";
-    } else {
-        canStart = (boot.includes("fda") && fdaFile) ||
-                   (boot.includes("hda") && hdaFile) ||
-                   (boot.includes("cdrom") && cdromFile);
-    }
-
-    el("start").disabled = !canStart;
+    el("start").disabled = !can;
     el("start").textContent = emulator ? "Stop" : "Start";
     el("save-state").disabled = !emulator;
     el("capture-input").disabled = !emulator;
@@ -292,7 +272,7 @@ function updateUI() {
     el("cdrom-name").textContent = cdromFile ? `${cdromFile.name} (${fmtSize(cdromFile.size)})` : "";
 }
 
-// File handlers (unchanged)
+// File handlers
 el("fda").onchange = e => { fdaFile = e.target.files[0]; updateUI(); };
 el("cdrom").onchange = e => { cdromFile = e.target.files[0]; updateUI(); };
 el("hda").onchange = async e => {
@@ -322,10 +302,9 @@ el("hda").onchange = async e => {
 
 el("boot").onchange = updateUI;
 el("ram").onchange = updateUI;
-el("profile").onchange = updateUI;
 
-// Capture input (unchanged)
-el("capture-input").onclick = () => {
+// Capture input function (used by button and Left Ctrl)
+function captureInput() {
     if (!emulator) return;
     const container = el("screen_container");
     const canvas = container.querySelector("canvas") || container;
@@ -335,42 +314,35 @@ el("capture-input").onclick = () => {
             canvas.requestPointerLock();
         }
         canvas.focus({ preventScroll: true });
+        container.focus({ preventScroll: true });
+        
         container.classList.add("focused");
-        status("Input captured! Click screen few more times if keys don't work");
+        status("Input captured ✓  (ESC or Ctrl+Alt to release)");
     } catch (e) {
-        status("Click inside the screen multiple times to capture");
+        status("Click inside the screen to capture input");
     }
-};
+}
 
-document.addEventListener("pointerlockchange", () => {
-    if (!document.pointerLockElement) {
-        el("screen_container").classList.remove("focused");
-        status("Input released");
+el("capture-input").onclick = captureInput;
+
+// Press LEFT Ctrl to capture input (anywhere on page)
+document.addEventListener("keydown", (event) => {
+    // Left Ctrl only (not right Ctrl)
+    if (event.key === "Control" && event.location === KeyboardEvent.DOM_KEY_LOCATION_LEFT) {
+        event.preventDefault(); // prevent browser default (e.g. zoom)
+        captureInput();
     }
 });
 
-// Fullscreen + resize (unchanged)
-function resizeCanvasToFill() {
-    const canvas = el("screen_container")?.querySelector("canvas");
-    if (!canvas) return;
-    canvas.style.width = "100%";
-    canvas.style.height = "100%";
-    canvas.style.maxWidth = "100%";
-    canvas.style.maxHeight = "100%";
-}
-
+// Fullscreen handling
 el("toggle-fullscreen").onclick = () => {
     const container = el("screen_container");
     
     if (!document.fullscreenElement) {
         if (container.requestFullscreen) {
-            container.requestFullscreen().then(() => {
-                resizeCanvasToFill();
-                status("Fullscreen enabled (ESC to exit)");
-            });
+            container.requestFullscreen();
         } else if (container.webkitRequestFullscreen) {
             container.webkitRequestFullscreen();
-            resizeCanvasToFill();
         }
         el("toggle-fullscreen").textContent = "Exit Fullscreen";
     } else {
@@ -380,22 +352,24 @@ el("toggle-fullscreen").onclick = () => {
             document.webkitExitFullscreen();
         }
         el("toggle-fullscreen").textContent = "Fullscreen";
-        resizeCanvasToFill();
-        status("Fullscreen exited");
     }
 };
 
 document.addEventListener("fullscreenchange", () => {
-    if (!document.fullscreenElement) {
-        el("toggle-fullscreen").textContent = "Fullscreen";
-        resizeCanvasToFill();
+    if (document.fullscreenElement) {
+        status("Fullscreen – press Left Ctrl or click Capture Input if input doesn't work");
+        setTimeout(captureInput, 500); // auto-try after fullscreen
+    } else {
+        el("screen_container").classList.remove("focused");
         status("Fullscreen exited");
     }
 });
 
-window.addEventListener("resize", resizeCanvasToFill);
+window.addEventListener("resize", () => {
+    if (document.fullscreenElement) setTimeout(captureInput, 300);
+});
 
-// Start emulator - with CORS proxy for Win 3.1
+// Start emulator
 el("start").onclick = async () => {
     if (emulator) {
         emulator.destroy();
@@ -406,21 +380,13 @@ el("start").onclick = async () => {
         return;
     }
 
-    const profile = el("profile").value;
-    let ramMB = parseInt(el("ram").value);
-
-    if (profile === "win31") {
-        ramMB = 32;
-        el("ram").value = "32";
-        status("Loading Windows 3.1 via proxy (may be slow)...");
-    } else {
-        status(`Starting... ${ramMB} MB RAM`);
-    }
+    const ramMB = parseInt(el("ram").value);
+    status(`Starting... ${ramMB} MB RAM`);
 
     const config = {
         wasm_path: "build/v86.wasm",
         memory_size: ramMB * 1024 * 1024,
-        vga_memory_size: profile === "win31" ? 8 * 1024 * 1024 : 32 * 1024 * 1024,
+        vga_memory_size: 32 * 1024 * 1024,
         screen_container: el("screen_container"),
         bios: { url: "build/seabios.bin" },
         vga_bios: { url: "build/vgabios.bin" },
@@ -428,52 +394,37 @@ el("start").onclick = async () => {
     };
 
     const LARGE = 512 * 1024 * 1024;
-    let boot = el("boot").value;
+    const boot = el("boot").value;
 
-    if (profile === "win31") {
-        boot = "hda-only";
-        config.hda = {
-            url: "https://corsproxy.io/?https://i.copy.sh/win31.img",  // Proxy to fix CORS + headers
-            async: true
-        };
-        config.boot_order = 0x200; // HDD only
-    } else {
-        // Custom boot logic
-        if (fdaFile && (boot.includes("fda") || boot === "fda-only")) {
-            config.fda = fdaFile.size > LARGE
-                ? { url: URL.createObjectURL(fdaFile), async: true, size: fdaFile.size }
-                : { buffer: await fdaFile.arrayBuffer() };
-        }
-        if (hdaFile && boot.includes("hda")) {
-            config.hda = hdaZipBuffer
-                ? { buffer: hdaZipBuffer }
-                : hdaFile.size > LARGE
-                    ? { url: URL.createObjectURL(hdaFile), async: true, size: hdaFile.size }
-                    : { buffer: await hdaFile.arrayBuffer() };
-        }
-        if (cdromFile && boot.includes("cdrom")) {
-            config.cdrom = cdromFile.size > LARGE
-                ? { url: URL.createObjectURL(cdromFile), async: true, size: cdromFile.size }
-                : { buffer: await cdromFile.arrayBuffer() };
-        }
-
-        config.boot_order =
-            boot === "fda-first" ? 0x321 :
-            boot === "hda-first" ? 0x213 :
-            boot === "cdrom-first" ? 0x123 :
-            boot === "fda-only" ? 0x100 :
-            boot === "hda-only" ? 0x200 : 0x100;
+    if (fdaFile && (boot.includes("fda") || boot === "fda-only")) {
+        config.fda = fdaFile.size > LARGE
+            ? { url: URL.createObjectURL(fdaFile), async: true, size: fdaFile.size }
+            : { buffer: await fdaFile.arrayBuffer() };
     }
+    if (hdaFile && boot.includes("hda")) {
+        config.hda = hdaZipBuffer
+            ? { buffer: hdaZipBuffer }
+            : hdaFile.size > LARGE
+                ? { url: URL.createObjectURL(hdaFile), async: true, size: hdaFile.size }
+                : { buffer: await hdaFile.arrayBuffer() };
+    }
+    if (cdromFile && boot.includes("cdrom")) {
+        config.cdrom = cdromFile.size > LARGE
+            ? { url: URL.createObjectURL(cdromFile), async: true, size: cdromFile.size }
+            : { buffer: await cdromFile.arrayBuffer() };
+    }
+
+    config.boot_order =
+        boot === "fda-first" ? 0x321 :
+        boot === "hda-first" ? 0x213 :
+        boot === "cdrom-first" ? 0x123 :
+        boot === "fda-only" ? 0x100 :
+        boot === "hda-only" ? 0x200 : 0x100;
 
     try {
         emulator = new V86(config);
-        if (profile === "win31") {
-            status("Windows 3.1 is starting via proxy... (may take 30-60 seconds)");
-        } else {
-            status(`Running — ${ramMB} MB RAM • Capture input if needed`);
-        }
+        status(`Running — ${ramMB} MB RAM • Press Left Ctrl or click Capture Input`);
         updateUI();
-        setTimeout(resizeCanvasToFill, 800);
     } catch(e) {
         status("Start failed: " + e.message);
         console.error(e);
@@ -507,7 +458,6 @@ el("load-state").onclick = () => {
             if (emulator) {
                 await emulator.restore_state(buf);
                 status("State loaded");
-                setTimeout(resizeCanvasToFill, 300);
             } else alert("Start emulator first");
         } catch(e) { status("Load failed"); }
     };
