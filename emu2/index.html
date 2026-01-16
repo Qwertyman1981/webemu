@@ -276,13 +276,10 @@ function updateUI() {
         canStart = true;
         el("boot").value = "hda-only";
         el("ram").value = "32";
-        el("hda").disabled = true;
-        // We'll load the image automatically in start
     } else {
         canStart = (boot.includes("fda") && fdaFile) ||
                    (boot.includes("hda") && hdaFile) ||
                    (boot.includes("cdrom") && cdromFile);
-        el("hda").disabled = false;
     }
 
     el("start").disabled = !canStart;
@@ -295,7 +292,7 @@ function updateUI() {
     el("cdrom-name").textContent = cdromFile ? `${cdromFile.name} (${fmtSize(cdromFile.size)})` : "";
 }
 
-// File handlers
+// File handlers...
 el("fda").onchange = e => { fdaFile = e.target.files[0]; updateUI(); };
 el("cdrom").onchange = e => { cdromFile = e.target.files[0]; updateUI(); };
 el("hda").onchange = async e => {
@@ -327,9 +324,7 @@ el("boot").onchange = updateUI;
 el("ram").onchange = updateUI;
 el("profile").onchange = updateUI;
 
-// Capture input, fullscreen, resize functions remain unchanged
-// (keeping them out for brevity - copy from your previous version)
-
+// Capture input (unchanged)
 el("capture-input").onclick = () => {
     if (!emulator) return;
     const container = el("screen_container");
@@ -354,6 +349,7 @@ document.addEventListener("pointerlockchange", () => {
     }
 });
 
+// Fullscreen + resize (unchanged)
 function resizeCanvasToFill() {
     const canvas = el("screen_container")?.querySelector("canvas");
     if (!canvas) return;
@@ -399,7 +395,7 @@ document.addEventListener("fullscreenchange", () => {
 
 window.addEventListener("resize", resizeCanvasToFill);
 
-// Start emulator with profile support
+// Start emulator - FIXED VERSION
 el("start").onclick = async () => {
     if (emulator) {
         emulator.destroy();
@@ -411,12 +407,12 @@ el("start").onclick = async () => {
     }
 
     const profile = el("profile").value;
-    const ramMB = parseInt(el("ram").value);
-    
+    let ramMB = parseInt(el("ram").value);  // ← using let so we can change it
+
     if (profile === "win31") {
-        status("Loading Windows 3.1 profile...");
-        ramMB = 32; // force good value for Win 3.1
+        ramMB = 32;  // ← now safe to reassign
         el("ram").value = "32";
+        status("Loading Windows 3.1 profile...");
     } else {
         status(`Starting... ${ramMB} MB RAM`);
     }
@@ -424,7 +420,7 @@ el("start").onclick = async () => {
     const config = {
         wasm_path: "build/v86.wasm",
         memory_size: ramMB * 1024 * 1024,
-        vga_memory_size: 8 * 1024 * 1024,    // smaller for Win 3.1
+        vga_memory_size: profile === "win31" ? 8 * 1024 * 1024 : 32 * 1024 * 1024,
         screen_container: el("screen_container"),
         bios: { url: "build/seabios.bin" },
         vga_bios: { url: "build/vgabios.bin" },
@@ -443,7 +439,7 @@ el("start").onclick = async () => {
         };
         config.boot_order = 0x200; // HDD only
     } else {
-        // Normal custom boot logic...
+        // Normal custom boot logic
         if (fdaFile && (boot.includes("fda") || boot === "fda-only")) {
             config.fda = fdaFile.size > LARGE
                 ? { url: URL.createObjectURL(fdaFile), async: true, size: fdaFile.size }
@@ -485,7 +481,7 @@ el("start").onclick = async () => {
     }
 };
 
-// State handling, reset, etc. (unchanged)
+// State handling
 el("save-state").onclick = async () => {
     if (!emulator) return;
     try {
