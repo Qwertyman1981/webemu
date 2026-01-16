@@ -133,17 +133,6 @@
             outline-offset: -3px;
             box-shadow: 0 0 0 5px rgba(16,185,129,0.35);
         }
-        #screen_container > div {
-            width: 100%;
-            height: 100%;
-            white-space: pre;
-            font: 16px/16px "Courier New", Consolas, monospace;
-            line-height: 16px !important;
-            padding: 1.5rem;
-            color: #e5e7eb;
-            background: #000;
-            box-sizing: border-box;
-        }
         #screen_container canvas {
             width: 100% !important;
             height: 100% !important;
@@ -201,7 +190,15 @@
                 <div class="filename" id="cdrom-name"></div>
             </div>
         </div>
+
         <div class="settings-row">
+            <div>
+                <label for="profile"><strong>Quick Profile</strong></label>
+                <select id="profile">
+                    <option value="custom">Custom (manual selection)</option>
+                    <option value="win31">Windows 3.1</option>
+                </select>
+            </div>
             <div>
                 <label for="ram"><strong>RAM Size</strong></label>
                 <select id="ram">
@@ -209,11 +206,11 @@
                     <option value="4">4 MB</option>
                     <option value="8">8 MB</option>
                     <option value="16">16 MB</option>
-                    <option value="32">32 MB</option>
+                    <option value="32" selected>32 MB (recommended)</option>
                     <option value="64">64 MB</option>
                     <option value="128">128 MB</option>
                     <option value="256">256 MB</option>
-                    <option value="512" selected>512 MB (recommended)</option>
+                    <option value="512">512 MB</option>
                     <option value="1024">1 GB</option>
                     <option value="2048">2 GB</option>
                 </select>
@@ -230,6 +227,7 @@
                 </select>
             </div>
         </div>
+
         <div class="control-bar">
             <button id="start" class="btn-primary" disabled>Start Emulator</button>
             <button id="save-state" class="btn-warning" disabled>Save State</button>
@@ -238,6 +236,7 @@
             <button id="capture-input" class="btn-success" disabled>Capture Input</button>
             <button id="toggle-fullscreen" class="btn-primary">Fullscreen</button>
         </div>
+
         <div id="screen_container" tabindex="0">
             <div>
 V86 Emulator — Ready
@@ -268,12 +267,25 @@ const fmtSize = bytes => {
 };
 
 function updateUI() {
+    const profile = el("profile").value;
     const boot = el("boot").value;
-    const can = (boot.includes("fda") && fdaFile) ||
-                (boot.includes("hda") && hdaFile) ||
-                (boot.includes("cdrom") && cdromFile);
     
-    el("start").disabled = !can;
+    let canStart = false;
+    
+    if (profile === "win31") {
+        canStart = true;
+        el("boot").value = "hda-only";
+        el("ram").value = "32";
+        el("hda").disabled = true;
+        // We'll load the image automatically in start
+    } else {
+        canStart = (boot.includes("fda") && fdaFile) ||
+                   (boot.includes("hda") && hdaFile) ||
+                   (boot.includes("cdrom") && cdromFile);
+        el("hda").disabled = false;
+    }
+
+    el("start").disabled = !canStart;
     el("start").textContent = emulator ? "Stop" : "Start";
     el("save-state").disabled = !emulator;
     el("capture-input").disabled = !emulator;
@@ -313,8 +325,11 @@ el("hda").onchange = async e => {
 
 el("boot").onchange = updateUI;
 el("ram").onchange = updateUI;
+el("profile").onchange = updateUI;
 
-// Capture input
+// Capture input, fullscreen, resize functions remain unchanged
+// (keeping them out for brevity - copy from your previous version)
+
 el("capture-input").onclick = () => {
     if (!emulator) return;
     const container = el("screen_container");
@@ -339,7 +354,6 @@ document.addEventListener("pointerlockchange", () => {
     }
 });
 
-// Fullscreen + resize
 function resizeCanvasToFill() {
     const canvas = el("screen_container")?.querySelector("canvas");
     if (!canvas) return;
@@ -385,7 +399,7 @@ document.addEventListener("fullscreenchange", () => {
 
 window.addEventListener("resize", resizeCanvasToFill);
 
-// Start emulator
+// Start emulator with profile support
 el("start").onclick = async () => {
     if (emulator) {
         emulator.destroy();
@@ -396,9 +410,13 @@ el("start").onclick = async () => {
         return;
     }
 
+    const profile = el("profile").value;
     const ramMB = parseInt(el("ram").value);
-    if (ramMB < 16) {
-        status(`Warning: ${ramMB} MB is very low — only suitable for tiny DOS/FreeDOS images`);
+    
+    if (profile === "win31") {
+        status("Loading Windows 3.1 profile...");
+        ramMB = 32; // force good value for Win 3.1
+        el("ram").value = "32";
     } else {
         status(`Starting... ${ramMB} MB RAM`);
     }
@@ -406,7 +424,7 @@ el("start").onclick = async () => {
     const config = {
         wasm_path: "build/v86.wasm",
         memory_size: ramMB * 1024 * 1024,
-        vga_memory_size: 32 * 1024 * 1024,
+        vga_memory_size: 8 * 1024 * 1024,    // smaller for Win 3.1
         screen_container: el("screen_container"),
         bios: { url: "build/seabios.bin" },
         vga_bios: { url: "build/vgabios.bin" },
@@ -414,36 +432,51 @@ el("start").onclick = async () => {
     };
 
     const LARGE = 512 * 1024 * 1024;
-    const boot = el("boot").value;
+    let boot = el("boot").value;
 
-    if (fdaFile && (boot.includes("fda") || boot === "fda-only")) {
-        config.fda = fdaFile.size > LARGE
-            ? { url: URL.createObjectURL(fdaFile), async: true, size: fdaFile.size }
-            : { buffer: await fdaFile.arrayBuffer() };
-    }
-    if (hdaFile && boot.includes("hda")) {
-        config.hda = hdaZipBuffer
-            ? { buffer: hdaZipBuffer }
-            : hdaFile.size > LARGE
-                ? { url: URL.createObjectURL(hdaFile), async: true, size: hdaFile.size }
-                : { buffer: await hdaFile.arrayBuffer() };
-    }
-    if (cdromFile && boot.includes("cdrom")) {
-        config.cdrom = cdromFile.size > LARGE
-            ? { url: URL.createObjectURL(cdromFile), async: true, size: cdromFile.size }
-            : { buffer: await cdromFile.arrayBuffer() };
-    }
+    // Windows 3.1 profile special handling
+    if (profile === "win31") {
+        boot = "hda-only";
+        config.hda = {
+            url: "https://drive.google.com/uc?export=download&id=15mhWO2C2YLv4_laF1F2ju2UhRyx5ndQC",
+            async: true
+        };
+        config.boot_order = 0x200; // HDD only
+    } else {
+        // Normal custom boot logic...
+        if (fdaFile && (boot.includes("fda") || boot === "fda-only")) {
+            config.fda = fdaFile.size > LARGE
+                ? { url: URL.createObjectURL(fdaFile), async: true, size: fdaFile.size }
+                : { buffer: await fdaFile.arrayBuffer() };
+        }
+        if (hdaFile && boot.includes("hda")) {
+            config.hda = hdaZipBuffer
+                ? { buffer: hdaZipBuffer }
+                : hdaFile.size > LARGE
+                    ? { url: URL.createObjectURL(hdaFile), async: true, size: hdaFile.size }
+                    : { buffer: await hdaFile.arrayBuffer() };
+        }
+        if (cdromFile && boot.includes("cdrom")) {
+            config.cdrom = cdromFile.size > LARGE
+                ? { url: URL.createObjectURL(cdromFile), async: true, size: cdromFile.size }
+                : { buffer: await cdromFile.arrayBuffer() };
+        }
 
-    config.boot_order =
-        boot === "fda-first" ? 0x321 :
-        boot === "hda-first" ? 0x213 :
-        boot === "cdrom-first" ? 0x123 :
-        boot === "fda-only" ? 0x100 :
-        boot === "hda-only" ? 0x200 : 0x100;
+        config.boot_order =
+            boot === "fda-first" ? 0x321 :
+            boot === "hda-first" ? 0x213 :
+            boot === "cdrom-first" ? 0x123 :
+            boot === "fda-only" ? 0x100 :
+            boot === "hda-only" ? 0x200 : 0x100;
+    }
 
     try {
         emulator = new V86(config);
-        status(`Running — ${ramMB} MB RAM • Capture input if needed`);
+        if (profile === "win31") {
+            status("Windows 3.1 is starting... (may take a moment)");
+        } else {
+            status(`Running — ${ramMB} MB RAM • Capture input if needed`);
+        }
         updateUI();
         setTimeout(resizeCanvasToFill, 800);
     } catch(e) {
@@ -452,7 +485,7 @@ el("start").onclick = async () => {
     }
 };
 
-// State handling
+// State handling, reset, etc. (unchanged)
 el("save-state").onclick = async () => {
     if (!emulator) return;
     try {
