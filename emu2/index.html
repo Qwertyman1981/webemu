@@ -292,7 +292,7 @@ function updateUI() {
     el("cdrom-name").textContent = cdromFile ? `${cdromFile.name} (${fmtSize(cdromFile.size)})` : "";
 }
 
-// File handlers
+// File handlers (unchanged)
 el("fda").onchange = e => { fdaFile = e.target.files[0]; updateUI(); };
 el("cdrom").onchange = e => { cdromFile = e.target.files[0]; updateUI(); };
 el("hda").onchange = async e => {
@@ -324,7 +324,7 @@ el("boot").onchange = updateUI;
 el("ram").onchange = updateUI;
 el("profile").onchange = updateUI;
 
-// Capture input
+// Capture input (unchanged)
 el("capture-input").onclick = () => {
     if (!emulator) return;
     const container = el("screen_container");
@@ -349,7 +349,7 @@ document.addEventListener("pointerlockchange", () => {
     }
 });
 
-// Fullscreen + resize
+// Fullscreen + resize (unchanged)
 function resizeCanvasToFill() {
     const canvas = el("screen_container")?.querySelector("canvas");
     if (!canvas) return;
@@ -395,7 +395,7 @@ document.addEventListener("fullscreenchange", () => {
 
 window.addEventListener("resize", resizeCanvasToFill);
 
-// Start emulator
+// Start emulator - with CORS proxy for Win 3.1
 el("start").onclick = async () => {
     if (emulator) {
         emulator.destroy();
@@ -412,7 +412,7 @@ el("start").onclick = async () => {
     if (profile === "win31") {
         ramMB = 32;
         el("ram").value = "32";
-        status("Loading Windows 3.1 profile...");
+        status("Loading Windows 3.1 via proxy (may be slow)...");
     } else {
         status(`Starting... ${ramMB} MB RAM`);
     }
@@ -433,12 +433,12 @@ el("start").onclick = async () => {
     if (profile === "win31") {
         boot = "hda-only";
         config.hda = {
-            url: "https://i.copy.sh/win31.img",
+            url: "https://corsproxy.io/?https://i.copy.sh/win31.img",  // Proxy to fix CORS + headers
             async: true
         };
         config.boot_order = 0x200; // HDD only
     } else {
-        // Normal custom boot logic
+        // Custom boot logic
         if (fdaFile && (boot.includes("fda") || boot === "fda-only")) {
             config.fda = fdaFile.size > LARGE
                 ? { url: URL.createObjectURL(fdaFile), async: true, size: fdaFile.size }
@@ -468,7 +468,7 @@ el("start").onclick = async () => {
     try {
         emulator = new V86(config);
         if (profile === "win31") {
-            status("Windows 3.1 is starting... (may take a moment)");
+            status("Windows 3.1 is starting via proxy... (may take 30-60 seconds)");
         } else {
             status(`Running — ${ramMB} MB RAM • Capture input if needed`);
         }
@@ -480,7 +480,7 @@ el("start").onclick = async () => {
     }
 };
 
-// State handling
+// State handling (unchanged)
 el("save-state").onclick = async () => {
     if (!emulator) return;
     try {
