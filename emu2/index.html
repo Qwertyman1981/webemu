@@ -292,7 +292,7 @@ function updateUI() {
     el("cdrom-name").textContent = cdromFile ? `${cdromFile.name} (${fmtSize(cdromFile.size)})` : "";
 }
 
-// File handlers...
+// File handlers
 el("fda").onchange = e => { fdaFile = e.target.files[0]; updateUI(); };
 el("cdrom").onchange = e => { cdromFile = e.target.files[0]; updateUI(); };
 el("hda").onchange = async e => {
@@ -324,7 +324,7 @@ el("boot").onchange = updateUI;
 el("ram").onchange = updateUI;
 el("profile").onchange = updateUI;
 
-// Capture input (unchanged)
+// Capture input
 el("capture-input").onclick = () => {
     if (!emulator) return;
     const container = el("screen_container");
@@ -349,7 +349,7 @@ document.addEventListener("pointerlockchange", () => {
     }
 });
 
-// Fullscreen + resize (unchanged)
+// Fullscreen + resize
 function resizeCanvasToFill() {
     const canvas = el("screen_container")?.querySelector("canvas");
     if (!canvas) return;
@@ -395,7 +395,7 @@ document.addEventListener("fullscreenchange", () => {
 
 window.addEventListener("resize", resizeCanvasToFill);
 
-// Start emulator - FIXED VERSION
+// Start emulator
 el("start").onclick = async () => {
     if (emulator) {
         emulator.destroy();
@@ -407,10 +407,10 @@ el("start").onclick = async () => {
     }
 
     const profile = el("profile").value;
-    let ramMB = parseInt(el("ram").value);  // ← using let so we can change it
+    let ramMB = parseInt(el("ram").value);
 
     if (profile === "win31") {
-        ramMB = 32;  // ← now safe to reassign
+        ramMB = 32;
         el("ram").value = "32";
         status("Loading Windows 3.1 profile...");
     } else {
@@ -430,11 +430,10 @@ el("start").onclick = async () => {
     const LARGE = 512 * 1024 * 1024;
     let boot = el("boot").value;
 
-    // Windows 3.1 profile special handling
     if (profile === "win31") {
         boot = "hda-only";
         config.hda = {
-            url: "https://drive.google.com/uc?export=download&id=15mhWO2C2YLv4_laF1F2ju2UhRyx5ndQC",
+            url: "https://i.copy.sh/win31.img",
             async: true
         };
         config.boot_order = 0x200; // HDD only
